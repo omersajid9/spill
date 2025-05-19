@@ -1,0 +1,6 @@
+whisperx
+ffmpeg-python
+nltk
+yt-dlp
+gradio
+-e ./clipsai

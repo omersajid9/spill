@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  clipping:
+    build:
+      context: .
+      dockerfile: clipping/Dockerfile
+    ports:
+      - "7860:7860"  # Map Gradio's default port
+    volumes:
+      - .:/app
+      - ./clipsai:/app/clipsai
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - GRADIO_SERVER_NAME=0.0.0.0  # Allow external connections
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
