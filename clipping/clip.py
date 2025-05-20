@@ -5,6 +5,7 @@ import os
 from typing import List, Dict
 from clipsai import ClipFinder, Transcriber
 from pathlib import Path
+import cv2
 
 class ClipProcessor:
     def __init__(self, data_store_dir: str):
@@ -16,25 +17,50 @@ class ClipProcessor:
         self.downloads_dir = os.path.join(data_store_dir, "yt_downloads")
         self.clips_dir = os.path.join(data_store_dir, "yt_clipped")
         os.makedirs(self.clips_dir, exist_ok=True)
-    
-    def get_available_videos(self) -> List[Dict[str, str]]:
-        """Get list of available videos in the downloads directory.
         
+    def _create_manual_clips(self, video_path: str, output_dir: str, video_id: str) -> List[Dict[str, str]]:
+        """Create manual clips by splitting video into 149-second segments with no overlap.
+        
+        Args:
+            video_path: Path to the video file
+            output_dir: Directory to save clips
+            video_id: ID of the video
+            
         Returns:
-            List of dictionaries containing video information
+            List of dictionaries containing clip information
         """
-        videos = []
-        for file in os.listdir(self.downloads_dir):
-            if file.endswith(('.mp4', '.mkv', '.avi')):
-                video_path = os.path.join(self.downloads_dir, file)
-                video_id = os.path.splitext(file)[0]  # Remove extension
-                videos.append({
-                    "path": video_path,
-                    "id": video_id,
-                    "name": file
-                })
-        return videos
-    
+        # Open the video file
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = int(total_frames / fps)  # Convert to int for range()
+        
+        # Calculate clip parameters
+        clip_duration = 149  # seconds
+        clip_info = []
+        
+        # Create clips
+        clip_index = 1
+        
+        for current_time in range(0, duration, clip_duration):
+            end_time = min(current_time + clip_duration, duration)
+            
+            # Create clip filename
+            clip_filename = f"video_{video_id}_clip_{clip_index:03d}_{current_time:.1f}s_to_{end_time:.1f}s.mp4"
+            clip_path = os.path.join(output_dir, clip_filename)
+            
+            clip_info.append({
+                "filename": clip_filename,
+                "path": clip_path,
+                "start_time": current_time,
+                "end_time": end_time
+            })
+            
+            clip_index += 1
+            
+        cap.release()
+        return clip_info
+        
     def process_video(self, video_path: str) -> List[Dict[str, str]]:
         """Process a video to find and save clips.
         
@@ -47,25 +73,45 @@ class ClipProcessor:
         # Get video ID from filename
         video_id = os.path.splitext(os.path.basename(video_path))[0]
         output_dir = os.path.join(self.clips_dir, video_id)
+        
+        # Check if clips already exist
+        if os.path.exists(output_dir):
+            clips = []
+            for file in os.listdir(output_dir):
+                if file.endswith('.mp4'):
+                    parts = file.split('.mp4')[0].split('_')
+                    try:
+                        start_time = float(parts[4][:-1])
+                        end_time = float(parts[6][:-1])
+
+                        clips.append({
+                            "filename": file,
+                            "path": os.path.join(output_dir, file),
+                            "start_time": start_time,
+                            "end_time": end_time
+                        })
+                    except (IndexError, ValueError) as e:
+                        continue
+            return clips
+            
+        # If no clips exist, process the video
         os.makedirs(output_dir, exist_ok=True)
         
-        # Transcribe the video
+        # Transcribe and find clips
         transcriber = Transcriber()
         transcription = transcriber.transcribe(audio_file_path=video_path)
-        
-        # Find clips
         clipfinder = ClipFinder()
         clips = clipfinder.find_clips(transcription=transcription)
         
-        # Process and save clips
+        # If no clips found, create manual clips
+        if not clips:
+            return self._create_manual_clips(video_path, output_dir, video_id)
+        
+        # Save clip information
         clip_info = []
         for i, clip in enumerate(clips):
-            # Create a descriptive filename
-            clip_filename = f"clip_{i+1:03d}_{clip.start_time:.1f}s_to_{clip.end_time:.1f}s.mp4"
+            clip_filename = f"video_{video_id}_clip_{i+1:03d}_{clip.start_time:.1f}s_to_{clip.end_time:.1f}s.mp4"
             clip_path = os.path.join(output_dir, clip_filename)
-            
-            # TODO: Implement actual video clipping here
-            # For now, we'll just return the clip information
             clip_info.append({
                 "filename": clip_filename,
                 "path": clip_path,

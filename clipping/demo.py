@@ -6,6 +6,9 @@ from download import VideoDownloader
 from clip import ClipProcessor
 import os
 
+# Constants
+TOPK_MOMENT = 40  # Maximum number of clip buttons to show
+
 def create_demo(data_store_dir: str) -> gr.Blocks:
     """Create and return the Gradio interface."""
     # Initialize processors
@@ -14,85 +17,106 @@ def create_demo(data_store_dir: str) -> gr.Blocks:
     clip_processor = ClipProcessor(data_store_dir)
     
     def process_video_for_clipping(video_path: str) -> tuple:
-        """Process video and return clip information."""
+        """Process video and return clip information and buttons."""
         if not video_path:
-            return None, "Please select a video first"
+            return "Please select a video first", *([gr.update(visible=False)] * TOPK_MOMENT)
         
         try:
             clips = clip_processor.process_video(video_path)
-            # Format clip information for display
-            clip_info = "\n".join([
-                f"Clip {i+1}: {clip['filename']} ({clip['start_time']:.1f}s - {clip['end_time']:.1f}s)"
-                for i, clip in enumerate(clips)
-            ])
-            return clip_info, f"Successfully processed {len(clips)} clips"
+            
+            # Create button updates
+            button_updates = []
+            for i in range(TOPK_MOMENT):
+                if i < len(clips):
+                    clip = clips[i]
+                    button_text = f"moment {i+1}: [{clip['start_time']:.1f}s - {clip['end_time']:.1f}s]"
+                    button_updates.append(gr.update(value=button_text, visible=True))
+                else:
+                    button_updates.append(gr.update(visible=False))
+            
+            return f"Found {len(clips)} clips", *button_updates
         except Exception as e:
-            return None, f"Error processing video: {str(e)}"
+            return f"Error processing video: {str(e)}", *([gr.update(visible=False)] * TOPK_MOMENT)
     
     # Get available videos for dropdown
     available_videos = downloader.get_available_videos()
     video_choices = [(v["name"], v["path"]) for v in available_videos]
     
+    # Create JavaScript code for clip buttons
+    js_codes = ["""() => {{
+            let moment_text = document.getElementById('result_{}').textContent;
+
+            // Extract the time range part
+            let timeRange = moment_text.split(':')[1].trim();
+            // Remove [ and ] and split by -
+            let times = timeRange.slice(1, -1).split('-');
+            // Get start time (remove 's' and convert to float)
+            let startTime = parseFloat(times[0].trim().replace('s', ''));
+            
+            let video = document.getElementsByTagName("video")[0];
+            if (video) {{
+                video.currentTime = startTime;
+                video.play();
+            }} else {{
+                console.log('Video element not found');
+            }}
+        }}""".format(i, i) for i in range(TOPK_MOMENT)]
+    
     # Create the interface using Blocks
     with gr.Blocks(title="ClipsAI Video Processing") as interface:
         gr.Markdown("# ClipsAI Video Processing")
         
-        with gr.Tabs() as tabs:
-            # Step 1: Video Download Interface
-            with gr.Tab("Step 1: Download Video"):
-                with gr.Row():
-                    with gr.Column():
-                        url_input = gr.Textbox(
-                            label="YouTube URL",
-                            placeholder="Enter YouTube video URL here..."
-                        )
-                        quality_radio = gr.Radio(
-                            choices=["best", "worst"],
-                            value="best",
-                            label="Video Quality"
-                        )
-                        download_btn = gr.Button("Download Video")
-                    
-                    with gr.Column():
-                        video_output = gr.Video(label="Downloaded Video")
-                        download_status = gr.Textbox(label="Status")
+        with gr.Row():
+            # Left Column - Video Download and Playback
+            with gr.Column():
+                with gr.Group():
+                    url_input = gr.Textbox(
+                        label="YouTube URL",
+                        placeholder="Enter YouTube video URL here..."
+                    )
+                    download_btn = gr.Button("Download Video")
+                    video_output = gr.Video(label="Video Player")
+                    download_status = gr.Textbox(label="Status")
                 
                 download_btn.click(
-                    fn=downloader.download_video,
-                    inputs=[url_input, quality_radio],
+                    fn=lambda url: downloader.download_video(url, "worst"),  # Always use worst quality
+                    inputs=[url_input],
                     outputs=[video_output, download_status]
                 )
                 
                 gr.Examples(
                     examples=[
-                        ["https://www.youtube.com/watch?v=dQw4w9WgXcQ", "best"],
-                        ["https://www.youtube.com/watch?v=dQw4w9WgXcQ", "worst"]
+                        ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
                     ],
-                    inputs=[url_input, quality_radio]
+                    inputs=[url_input]
                 )
             
-            # Step 2: Video Clipping Interface
-            with gr.Tab("Step 2: Clip Video"):
-                with gr.Row():
-                    with gr.Column():
-                        video_dropdown = gr.Dropdown(
-                            choices=video_choices,
-                            label="Select Video to Clip",
-                            type="value"
+            # Right Column - Clip Selection
+            with gr.Column():
+                gr.Markdown("## Generated Clips")
+                clip_btn = gr.Button("Generate Clips")
+                clip_status = gr.Textbox(label="Status")
+                
+                # Create clip buttons
+                with gr.Group():
+                    gr.Markdown("## Retrieved Clips")
+                    clip_buttons = []
+                    for i in range(TOPK_MOMENT):
+                        btn = gr.Button(
+                            value=f'clip {i+1}',
+                            visible=False,
+                            elem_id=f'result_{i}'
                         )
-                        clip_btn = gr.Button("Generate Clips")
-                    
-                    with gr.Column():
-                        clip_output = gr.Textbox(
-                            label="Generated Clips",
-                            lines=10
-                        )
-                        clip_status = gr.Textbox(label="Status")
+                        clip_buttons.append(btn)
+                
+                # Set up clip button click handlers
+                for i, btn in enumerate(clip_buttons):
+                    btn.click(None, None, None, js=js_codes[i])
                 
                 clip_btn.click(
                     fn=process_video_for_clipping,
-                    inputs=[video_dropdown],
-                    outputs=[clip_output, clip_status]
+                    inputs=[video_output],
+                    outputs=[clip_status] + clip_buttons
                 )
     
     return interface
