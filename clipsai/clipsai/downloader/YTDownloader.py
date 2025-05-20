@@ -9,7 +9,7 @@ from typing import Optional
 
 # current package imports
 from .Downloader import Downloader
-from ..media.video_file import VideoFile
+from ..media.audiovideo_file import AudioVideoFile
 from ..media.exceptions import MediaEditorError
 
 # local imports
@@ -65,7 +65,7 @@ class YTDownloader(Downloader):
         overwrite: bool = True,
         quality: str = "best",
         format: str = "mp4"
-    ) -> Optional[VideoFile]:
+    ) -> Optional[AudioVideoFile]:
         """
         Download a video from YouTube.
         
@@ -85,8 +85,8 @@ class YTDownloader(Downloader):
             
         Returns
         -------
-        Optional[VideoFile]
-            VideoFile object if download successful, None otherwise
+        Optional[AudioVideoFile]
+            AudioVideoFile object if download successful, None otherwise
         """
         # Validate inputs
         if not url.startswith(("https://www.youtube.com/", "https://youtu.be/")):
@@ -100,6 +100,7 @@ class YTDownloader(Downloader):
         # Build yt-dlp command
         ytdlp_cmd = [
             "yt-dlp",
+            "--cookies", "./content/yt_cookies.txt",
             "--no-playlist",  # Don't download playlists
             "--no-warnings",  # Suppress warnings
             "--no-progress",  # Don't show progress bar
@@ -138,7 +139,7 @@ class YTDownloader(Downloader):
             logging.error(err_msg)
             return None
             
-        # Return new VideoFile object
-        video_file = VideoFile(output_path)
+        # Return new AudioVideoFile object
+        video_file = AudioVideoFile(output_path)
         video_file.assert_exists()
         return video_file

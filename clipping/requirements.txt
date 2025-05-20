@@ -3,4 +3,4 @@ ffmpeg-python
 nltk
 yt-dlp
 gradio
--e ./clipsai
+-e ../clipsai
