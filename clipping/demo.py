@@ -30,7 +30,7 @@ def create_demo(data_store_dir: str) -> gr.Blocks:
             return None, f"Error processing video: {str(e)}"
     
     # Get available videos for dropdown
-    available_videos = clip_processor.get_available_videos()
+    available_videos = downloader.get_available_videos()
     video_choices = [(v["name"], v["path"]) for v in available_videos]
     
     # Create the interface using Blocks

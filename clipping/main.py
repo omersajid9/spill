@@ -14,6 +14,8 @@ def initialize():
     # Download NLTK data if needed (silently)
     try:
         nltk.data.find('tokenizers/punkt')
+        nltk.download('punkt')
+        nltk.download('punkt_tab')
     except LookupError:
         nltk.download('punkt', quiet=True)
 
