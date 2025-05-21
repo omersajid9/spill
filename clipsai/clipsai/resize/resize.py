@@ -27,7 +27,7 @@ def resize(
     min_scene_duration: float = 0.25,
     scene_merge_threshold: float = 0.25,
     time_precision: int = 6,
-    device: str = None,
+    device: str = 'cuda',
 ) -> Crops:
     """
     Resizes a video to a specified aspect ratio, with default being 9:16. It involves

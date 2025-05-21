@@ -400,7 +400,7 @@ class ClipFinderConfigManager(TextTilerConfigManager):
             The imputed input data.
         """
         default_values = {
-            "compute_device": "cpu",
+            "compute_device": "cuda",
             "cutoff_policy": "high",
             "embedding_aggregation_pool_method": "max",
             "min_clip_time": 15,

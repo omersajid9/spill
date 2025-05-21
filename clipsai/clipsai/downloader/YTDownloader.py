@@ -88,6 +88,9 @@ class YTDownloader(Downloader):
         Optional[AudioVideoFile]
             AudioVideoFile object if download successful, None otherwise
         """
+        logging.info(f"Downloading video: {url}")
+        logging.info(f"Quality: {quality}, Format: {format}")
+        
         # Validate inputs
         if not url.startswith(("https://www.youtube.com/", "https://youtu.be/")):
             raise MediaEditorError(f"Invalid YouTube URL: {url}")
@@ -97,49 +100,40 @@ class YTDownloader(Downloader):
         else:
             self._file_system_manager.assert_valid_path_for_new_fs_object(output_path)
             
-        # Build yt-dlp command
-        ytdlp_cmd = [
+        # Build yt-dlp command based on quality specification
+        if quality == "best":
+            format_spec = f"bestvideo[ext={format}]+bestaudio[ext={format}]/best[ext={format}]"
+        elif quality == "worst":
+            format_spec = f"worstvideo[ext={format}]+worstaudio[ext={format}]/worst[ext={format}]"
+        else:
+            # Try to extract numeric height from quality (e.g., "720p" -> "720")
+            try:
+                height = ''.join(filter(str.isdigit, quality))
+                format_spec = f"bestvideo[ext={format}][height<={height}]+bestaudio[ext={format}]/best[ext={format}]"
+            except:
+                format_spec = f"best[ext={format}]"
+        
+        command = [
             "yt-dlp",
-            "--cookies", "/root/spill/data/extra/yt_cookies.txt",
-            "--no-playlist",  # Don't download playlists
-            "--no-warnings",  # Suppress warnings
-            "--no-progress",  # Don't show progress bar
-            "-f", f"bestvideo[ext={format}]+bestaudio[ext={format}]/best[ext={format}]" 
-                  if quality == "best" else f"worst[ext={format}]",
+            "-f", format_spec,
             "-o", output_path,
             url
         ]
         
         # Run yt-dlp command
         result = subprocess.run(
-            ytdlp_cmd,
+            command,
             capture_output=True,
             text=True
         )
         
-        # Log result
-        msg = (
-            f"\n{'-' * 40}\n"
-            f"url: '{url}'\n"
-            f"output_path: '{output_path}'\n"
-            f"quality: '{quality}'\n"
-            f"format: '{format}'\n"
-            f"Terminal return code: '{result.returncode}'\n"
-            f"Output: '{result.stdout}'\n"
-            f"Err Output: '{result.stderr}'\n"
-            f"{'-' * 40}\n"
-        )
-        
         # Check for success
         if result.returncode != SUCCESS:
-            err_msg = (
-                f"Downloading video from '{url}' to '{output_path}' was unsuccessful. "
-                f"Here is some helpful troubleshooting information:\n{msg}"
-            )
-            logging.error(err_msg)
+            logging.error(f"Download failed: {result.stderr}")
             return None
             
         # Return new AudioVideoFile object
         video_file = AudioVideoFile(output_path)
         video_file.assert_exists()
+        logging.info(f"Download complete: {output_path}")
         return video_file

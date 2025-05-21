@@ -29,12 +29,7 @@ class MomentProcessor:
         
         # Initialize model
         self.weight_path = os.path.join(self.weight_dir, 'clip_slowfast_cg_detr_qvhighlight.ckpt')
-        logging.info(f"Initializing CGDETRPredictor with:")
-        logging.info(f"  - Weight path: {self.weight_path}")
-        logging.info(f"  - Device: {self.device}")
-        logging.info(f"  - Feature name: clip_slowfast")
-        logging.info(f"  - SlowFast path: {os.path.join(self.weight_dir, 'SLOWFAST_8x8_R50.pkl')}")
-        logging.info(f"  - PANN path: {os.path.join(self.weight_dir, 'Cnn14_mAP=0.431.pth')}")
+        logging.info(f"Initializing CGDETRPredictor on {self.device}")
         
         self.model = CGDETRPredictor(
             self.weight_path, 
@@ -43,7 +38,7 @@ class MomentProcessor:
             slowfast_path=os.path.join(self.weight_dir, 'SLOWFAST_8x8_R50.pkl'),
             pann_path=os.path.join(self.weight_dir, 'Cnn14_mAP=0.431.pth')
         )
-        logging.info("CGDETRPredictor initialized successfully")
+        logging.info("Model initialized successfully")
     
     def _load_weights(self) -> None:
         """Download and load required model weights."""
@@ -71,21 +66,35 @@ class MomentProcessor:
         logging.info("All model weights downloaded successfully.")
     
     def _is_duplicate_moment(self, moment: Dict[str, float], existing_moments: List[Dict[str, float]], 
+                            clip_start_time: float, clip_end_time: float,
                             time_threshold: float = 1.0) -> bool:
-        """Check if a moment is a duplicate of any existing moment.
+        """Check if a moment is a duplicate of any existing moment within the same clip.
         
         Args:
             moment: The moment to check
             existing_moments: List of existing moments
+            clip_start_time: Start time of the current clip
+            clip_end_time: End time of the current clip
             time_threshold: Time threshold in seconds to consider moments as duplicates
             
         Returns:
             bool: True if the moment is a duplicate
         """
-        for existing in existing_moments:
+        # Only check moments that fall within this clip's time range
+        clip_moments = [
+            m for m in existing_moments 
+            if m['start_time'] >= clip_start_time and m['end_time'] <= clip_end_time
+        ]
+        
+        for existing in clip_moments:
             # Check if the moments overlap significantly
-            if (abs(moment['start_time'] - existing['start_time']) < time_threshold and
-                abs(moment['end_time'] - existing['end_time']) < time_threshold):
+            overlap_start = max(moment['start_time'], existing['start_time'])
+            overlap_end = min(moment['end_time'], existing['end_time'])
+            overlap_duration = max(0, overlap_end - overlap_start)
+            moment_duration = moment['end_time'] - moment['start_time']
+            
+            # If more than 50% of the moment overlaps with an existing moment, consider it a duplicate
+            if overlap_duration > 0.5 * moment_duration:
                 return True
         return False
     
@@ -192,11 +201,15 @@ class MomentProcessor:
             "confidence": confidence
         }
         
-        # Check for duplicates
-        if self._is_duplicate_moment(moment, existing_moments):
-            logging.info(f"Skipping duplicate moment: {abs_start_time:.1f}s - {abs_end_time:.1f}s")
-            return []
+        # Get clip end time from filename
+        clip_filename = os.path.basename(clip_path)
+        clip_end_time = float(clip_filename.split('_to_')[1].replace('s.mp4', ''))
         
+        # Check for duplicates within this clip only
+        if self._is_duplicate_moment(moment, existing_moments, clip_start_time, clip_end_time):
+            logging.info(f"Skipping duplicate moment within clip: {abs_start_time:.1f}s - {abs_end_time:.1f}s")
+            return []
+                
         # Create moment filename and path
         moment_filename = f"video_{video_id}_moment_{len(existing_moments)+1:03d}_{abs_start_time:.1f}s_to_{abs_end_time:.1f}s_conf_{confidence:.2f}.mp4"
         moment_path = os.path.join(output_dir, moment_filename)
@@ -222,28 +235,25 @@ class MomentProcessor:
         Returns:
             List of dictionaries containing moment information
         """
-        logging.info(f"Processing clip: {clip_path}")
+        logging.info(f"Processing clip on {self.device}: {clip_path}")
         logging.info(f"Query: {query}")
+        
         try:
-            # Get video_id and clip number from the input path
+            # Get video_id and clip_id from the input path
             clip_dir = os.path.dirname(clip_path)
             video_id = os.path.basename(clip_dir).replace('video_', '')
             clip_filename = os.path.basename(clip_path)
-            clip_number = clip_filename.split('_clip_')[1].split('_')[0]
-            
-            # Get clip's start time in the original video
+            clip_id = os.path.splitext(clip_filename)[0]  # e.g. video_<id>_clip_001_...
             clip_start_time = self._get_clip_timestamps(clip_filename)
-            logging.info(f"Video ID: {video_id}, Clip number: {clip_number}, Clip start time: {clip_start_time:.1f}s")
-            
-            # Create output directory for this clip's moments
-            output_dir = os.path.join(self.moments_dir, f"video_{video_id}", query)
-            os.makedirs(output_dir, exist_ok=True)
-            logging.info(f"Output directory: {output_dir}")
-            
-            # Check for existing moments
-            existing_moments = []
+            sanitized_query = query.replace(' ', '_').lower()
+            logging.info(f"Sanitized query for folder name: {sanitized_query}")
+
+            # Create output directory for this clip's moments (per-clip directory)
+            output_dir = os.path.join(self.moments_dir, f"video_{video_id}", sanitized_query, clip_id)
+
+            # Check if moments already exist for this clip
             if os.path.exists(output_dir):
-                logging.info("Checking for existing moments in output directory")
+                moments = []
                 for file in os.listdir(output_dir):
                     if file.endswith('.mp4'):
                         parts = file.split('.mp4')[0].split('_')
@@ -251,37 +261,40 @@ class MomentProcessor:
                             start_time = float(parts[4][:-1])
                             end_time = float(parts[6][:-1])
                             confidence = float(parts[8])
-                            existing_moments.append({
+                            moments.append({
                                 "filename": file,
                                 "path": os.path.join(output_dir, file),
                                 "start_time": start_time,
                                 "end_time": end_time,
                                 "confidence": confidence
                             })
-                            logging.info(f"Found existing moment: {file} ({start_time}s - {end_time}s, conf: {confidence})")
                         except (IndexError, ValueError) as e:
-                            logging.error(f"Error parsing existing moment file {file}: {str(e)}")
+                            logging.error(f"Error parsing moment file {file}: {str(e)}")
                             continue
-            
-            # Encode video features - reinitialize for each clip
-            logging.info("Encoding video features for new clip...")
+                if moments:
+                    logging.info(f"Found {len(moments)} existing moments for clip {clip_filename}")
+                    return moments
+
+            # If no moments exist, process the clip
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Encode video features
+            logging.info(f"Encoding video features on {self.device}...")
             video = self.model.encode_video(clip_path)
-            logging.info("Video encoding complete")
-            
+
             # Get moment predictions
-            logging.info("Getting moment predictions from model...")
+            logging.info(f"Getting moment predictions on {self.device}...")
             predictions = self.model.predict(query, video)
-            logging.info(f"Raw predictions: {predictions}")
-            
-            # Process predictions - only take highest confidence moment
-            moments = self._process_predictions(predictions, video_id, clip_path, output_dir, existing_moments, clip_start_time)
-            
+
+            # Process predictions
+            moments = self._process_predictions(predictions, video_id, clip_path, output_dir, [], clip_start_time)
+
             if moments:
-                logging.info(f"Successfully processed highest confidence moment from clip (conf: {moments[0]['confidence']:.2f})")
+                logging.info(f"Found moment with confidence: {moments[0]['confidence']:.2f}")
             else:
-                logging.info("No valid moments found in this clip")
+                logging.info("No valid moments found")
             return moments
-            
+
         except Exception as e:
-            logging.error(f"Error processing clip for moments: {str(e)}", exc_info=True)
+            logging.error(f"Error processing clip: {str(e)}", exc_info=True)
             return []

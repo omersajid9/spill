@@ -4,13 +4,13 @@ Video clipping functionality using ClipsAI.
 import os
 from typing import List, Dict
 import logging
+import torch
 
 from .clip import Clip
 from .clipfinder import ClipFinder
 from ..transcribe.transcriber import Transcriber
 from ..media.editor import MediaEditor
 from ..media.audiovideo_file import AudioVideoFile
-
 
 from pathlib import Path
 import cv2
@@ -26,6 +26,8 @@ class ClipProcessor:
         self.clips_dir = os.path.join(data_store_dir, "yt_clipped")
         os.makedirs(self.clips_dir, exist_ok=True)
         self.media_editor = MediaEditor()
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        logging.info(f"ClipProcessor initialized on {self.device}")
         
     def _create_manual_clips(self, video_path: str, output_dir: str, video_id: str) -> List[Dict[str, str]]:
         """Create manual clips by splitting video into 149-second segments with no overlap.
@@ -85,11 +87,11 @@ class ClipProcessor:
         # Use the video from yt_downloads instead of the temporary path
         downloaded_video_path = os.path.join(self.downloads_dir, f"{video_id}.mp4")
         if not os.path.exists(downloaded_video_path):
-            logging.error(f"Video not found in downloads directory: {downloaded_video_path}")
+            logging.error(f"Video not found: {downloaded_video_path}")
             return []
             
         output_dir = os.path.join(self.clips_dir, video_id)
-        logging.info(f"Processing video: {downloaded_video_path}")
+        logging.info(f"Processing video on {self.device}: {downloaded_video_path}")
         logging.info(f"Output directory: {output_dir}")
         
         # Check if clips already exist
@@ -115,13 +117,17 @@ class ClipProcessor:
         os.makedirs(output_dir, exist_ok=True)
         
         # Transcribe and find clips
+        logging.info("Transcribing video...")
         transcriber = Transcriber()
         transcription = transcriber.transcribe(audio_file_path=downloaded_video_path)
+        
+        logging.info("Finding clips...")
         clipfinder = ClipFinder()
         clips = clipfinder.find_clips(transcription=transcription)
         
         # If no clips found, create manual clips
         if not clips:
+            logging.info("No clips found, creating manual clips")
             clip_info = self._create_manual_clips(downloaded_video_path, output_dir, video_id)
         else:
             # Save clip information
@@ -156,6 +162,6 @@ class ClipProcessor:
             if not success:
                 logging.error(f"Failed to create clip: {clip['filename']}")
             else:
-                logging.info(f"Successfully created clip: {clip['filename']}")
+                logging.info(f"Created clip: {clip['filename']}")
         
         return clip_info 

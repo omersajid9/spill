@@ -35,7 +35,7 @@ class Transcriber:
     def __init__(
         self,
         model_size: str = None,
-        device: str = None,
+        device: str = 'cuda',
         precision: str = None,
     ) -> None:
         """
