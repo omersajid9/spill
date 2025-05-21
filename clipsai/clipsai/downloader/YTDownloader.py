@@ -100,7 +100,7 @@ class YTDownloader(Downloader):
         # Build yt-dlp command
         ytdlp_cmd = [
             "yt-dlp",
-            "--cookies", "./content/yt_cookies.txt",
+            "--cookies", "/root/spill/data/extra/yt_cookies.txt",
             "--no-playlist",  # Don't download playlists
             "--no-warnings",  # Suppress warnings
             "--no-progress",  # Don't show progress bar

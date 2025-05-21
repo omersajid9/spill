@@ -1,5 +1,6 @@
 # Functions
 from .clip.clipfinder import ClipFinder
+from .clip.clipprocessor import ClipProcessor
 from .media.audio_file import AudioFile
 from .media.audiovideo_file import AudioVideoFile
 from .media.editor import MediaEditor
@@ -9,6 +10,7 @@ from .transcribe.transcriber import Transcriber
 
 from .downloader.Downloader import Downloader
 from .downloader.YTDownloader import YTDownloader
+from .downloader.videodownloader import VideoDownloader
 
 
 # Types
@@ -23,6 +25,7 @@ __all__ = [
     "AudioVideoFile",
     "Character",
     "ClipFinder",
+    "ClipProcessor",
     "Clip",
     "Crops",
     "MediaEditor",
@@ -33,5 +36,7 @@ __all__ = [
     "VideoFile",
     "Word",
     "resize",
-    "YTDownloader"
+    "YTDownloader",
+    "VideoDownloader",
+    "Downloader",
 ]

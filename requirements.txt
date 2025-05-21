@@ -1,0 +1,9 @@
+whisperx
+ffmpeg-python
+nltk
+yt-dlp
+nltk
+gradio
+-e ./clipsai
+torchtext==0.16.2
+-e ./lighthouse
